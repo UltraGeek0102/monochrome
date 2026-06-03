@@ -1,81 +1,74 @@
-name: Build IPA
+name: Build iOS IPA
 
 on:
-    workflow_dispatch: # Run manually from the Actions tab
+  workflow_dispatch:
+  push:
+    branches:
+      - main
 
 jobs:
-    build-ipa:
-        runs-on: macos-latest
+  build-ios:
+    runs-on: macos-latest
 
-        steps:
-            - name: Checkout code
-              uses: actions/checkout@v4
-              with:
-                  submodules: recursive
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-            - name: Setup Bun
-              uses: oven-sh/setup-bun@v1
-              with:
-                  bun-version: latest
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
 
-            - name: Cache node_modules
-              uses: actions/cache@v4
-              with:
-                  path: node_modules
-                  key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-                  restore-keys: ${{ runner.os }}-bun-
+      - name: Install dependencies
+        run: npm ci
 
-            - name: Install dependencies
-              run: bun install --frozen-lockfile
+      - name: Build web app
+        run: npm run build
 
-            - name: Build web app
-              run: bun run build
+      - name: Sync Capacitor
+        run: npx cap sync ios
 
-            - name: Install Capacitor CLI
-              run: bun add -g @capacitor/cli
+      - name: Install CocoaPods
+        run: |
+          cd ios/App
+          pod install
 
-            - name: Sync Capacitor iOS
-              run: bunx cap sync ios
+      - name: Build App
+        run: |
+          xcodebuild \
+            -workspace ios/App/App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -archivePath build/App.xcarchive \
+            archive \
+            CODE_SIGNING_ALLOWED=NO
 
-            - name: Install CocoaPods dependencies
-              working-directory: ios/App
-              run: |
-                  gem install cocoapods --no-document 2>/dev/null || true
-                  pod install --repo-update
+      - name: Export IPA
+        run: |
+          mkdir -p build/export
 
-            - name: Build IPA (no code signing)
-              working-directory: ios/App
-              run: |
-                  xcodebuild \
-                    -workspace App.xcworkspace \
-                    -scheme App \
-                    -configuration Release \
-                    -destination generic/platform=iOS \
-                    -archivePath $RUNNER_TEMP/Monochrome.xcarchive \
-                    CODE_SIGN_IDENTITY="" \
-                    CODE_SIGNING_REQUIRED=NO \
-                    CODE_SIGNING_ALLOWED=NO \
-                    ONLY_ACTIVE_ARCH=NO \
-                    archive
+          cat > ExportOptions.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+          "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>development</string>
+          </dict>
+          </plist>
+          EOF
 
-            - name: Export IPA (unsigned)
-              run: |
-                  mkdir -p $RUNNER_TEMP/ipa
+          xcodebuild \
+            -exportArchive \
+            -archivePath build/App.xcarchive \
+            -exportOptionsPlist ExportOptions.plist \
+            -exportPath build/export \
+            CODE_SIGNING_ALLOWED=NO
 
-                  # Pull the .app out of the archive
-                  APP_PATH=$(find $RUNNER_TEMP/Monochrome.xcarchive -name "*.app" | head -1)
-                  echo "Found app at: $APP_PATH"
-
-                  # Package into an IPA manually (unsigned)
-                  mkdir -p /tmp/Payload
-                  cp -r "$APP_PATH" /tmp/Payload/
-                  cd /tmp
-                  zip -r $RUNNER_TEMP/ipa/Monochrome.ipa Payload/
-                  echo "IPA created successfully"
-
-            - name: Upload IPA artifact
-              uses: actions/upload-artifact@v4
-              with:
-                  name: Monochrome-unsigned
-                  path: ${{ runner.temp }}/ipa/Monochrome.ipa
-                  retention-days: 7
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Monochrome-iOS
+          path: build/export/*.ipa
