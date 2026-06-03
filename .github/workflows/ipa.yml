@@ -1,74 +1,56 @@
-name: Build iOS IPA
+name: Build IPA
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
 
 jobs:
-  build-ios:
+  build:
     runs-on: macos-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
 
-      - name: Build web app
-        run: npm run build
+      - name: Install Dependencies
+        run: bun install
+
+      - name: Build Web Assets
+        run: bun run build
 
       - name: Sync Capacitor
         run: npx cap sync ios
 
-      - name: Install CocoaPods
-        run: |
-          cd ios/App
-          pod install
+      - name: Show Xcode Version
+        run: xcodebuild -version
 
-      - name: Build App
+      - name: Archive App
         run: |
-          xcodebuild \
-            -workspace ios/App/App.xcworkspace \
+          mkdir -p build
+
+          xcodebuild archive \
+            -project ios/App/App.xcodeproj \
             -scheme App \
             -configuration Release \
-            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
             -archivePath build/App.xcarchive \
-            archive \
             CODE_SIGNING_ALLOWED=NO
 
-      - name: Export IPA
+      - name: Package IPA
         run: |
-          mkdir -p build/export
+          mkdir Payload
 
-          cat > ExportOptions.plist <<EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
-          "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key>
-            <string>development</string>
-          </dict>
-          </plist>
-          EOF
+          cp -R build/App.xcarchive/Products/Applications/App.app Payload/
 
-          xcodebuild \
-            -exportArchive \
-            -archivePath build/App.xcarchive \
-            -exportOptionsPlist ExportOptions.plist \
-            -exportPath build/export \
-            CODE_SIGNING_ALLOWED=NO
+          zip -r Monochrome.ipa Payload
 
-      - name: Upload IPA
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: Monochrome-iOS
-          path: build/export/*.ipa
+          name: Monochrome-IPA
+          path: Monochrome.ipa
