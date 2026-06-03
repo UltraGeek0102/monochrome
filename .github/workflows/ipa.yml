@@ -1,0 +1,81 @@
+name: Build IPA
+
+on:
+    workflow_dispatch: # Run manually from the Actions tab
+
+jobs:
+    build-ipa:
+        runs-on: macos-latest
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+              with:
+                  submodules: recursive
+
+            - name: Setup Bun
+              uses: oven-sh/setup-bun@v1
+              with:
+                  bun-version: latest
+
+            - name: Cache node_modules
+              uses: actions/cache@v4
+              with:
+                  path: node_modules
+                  key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+                  restore-keys: ${{ runner.os }}-bun-
+
+            - name: Install dependencies
+              run: bun install --frozen-lockfile
+
+            - name: Build web app
+              run: bun run build
+
+            - name: Install Capacitor CLI
+              run: bun add -g @capacitor/cli
+
+            - name: Sync Capacitor iOS
+              run: bunx cap sync ios
+
+            - name: Install CocoaPods dependencies
+              working-directory: ios/App
+              run: |
+                  gem install cocoapods --no-document 2>/dev/null || true
+                  pod install --repo-update
+
+            - name: Build IPA (no code signing)
+              working-directory: ios/App
+              run: |
+                  xcodebuild \
+                    -workspace App.xcworkspace \
+                    -scheme App \
+                    -configuration Release \
+                    -destination generic/platform=iOS \
+                    -archivePath $RUNNER_TEMP/Monochrome.xcarchive \
+                    CODE_SIGN_IDENTITY="" \
+                    CODE_SIGNING_REQUIRED=NO \
+                    CODE_SIGNING_ALLOWED=NO \
+                    ONLY_ACTIVE_ARCH=NO \
+                    archive
+
+            - name: Export IPA (unsigned)
+              run: |
+                  mkdir -p $RUNNER_TEMP/ipa
+
+                  # Pull the .app out of the archive
+                  APP_PATH=$(find $RUNNER_TEMP/Monochrome.xcarchive -name "*.app" | head -1)
+                  echo "Found app at: $APP_PATH"
+
+                  # Package into an IPA manually (unsigned)
+                  mkdir -p /tmp/Payload
+                  cp -r "$APP_PATH" /tmp/Payload/
+                  cd /tmp
+                  zip -r $RUNNER_TEMP/ipa/Monochrome.ipa Payload/
+                  echo "IPA created successfully"
+
+            - name: Upload IPA artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: Monochrome-unsigned
+                  path: ${{ runner.temp }}/ipa/Monochrome.ipa
+                  retention-days: 7
