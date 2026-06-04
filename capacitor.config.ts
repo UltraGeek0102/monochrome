@@ -5,21 +5,17 @@ const config: CapacitorConfig = {
     appName: 'Monochrome Music',
     webDir: 'dist',
     ios: {
-        // Allow the webview to make cross-origin requests to TIDAL/Appwrite servers
         allowsLinkPreview: false,
         limitsNavigationsToAppBoundDomains: false,
-        // Disable scrolling bounce (feels more native)
-        scrollEnabled: false,
-        contentInset: 'always',
+        // NOTE: do NOT set scrollEnabled: false — it breaks in-app scrolling
     },
     server: {
-        // Allow all external URLs to load inside the webview (TIDAL streams, Appwrite auth)
         allowNavigation: [
             '*.tidal.com',
+            'resources.tidal.com',   // album art images for lock screen / Dynamic Island
             '*.monochrome.tf',
             'auth.monochrome.tf',
             '*.appwrite.io',
-            '*.qqdl.site',
             'hifi.geeked.wtf',
         ],
     },
