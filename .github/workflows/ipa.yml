@@ -27,33 +27,31 @@ jobs:
       - name: Sync Capacitor
         run: npx cap sync ios
 
-      # Apply Info.plist patches AFTER cap sync (sync overwrites it from template)
+      # Must run AFTER cap sync — sync regenerates Info.plist from template
       - name: Patch Info.plist
         run: |
           PLIST="ios/App/App/Info.plist"
 
-          # 1. Disable ATS so URLSession can fetch resources.tidal.com artwork
+          # Allow URLSession (used by media session plugin for artwork) to reach resources.tidal.com
           /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" "$PLIST" 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Delete :NSAppTransportSecurity:NSAllowsArbitraryLoads" "$PLIST" 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsArbitraryLoads bool true" "$PLIST"
 
-          # 2. Register Appwrite OAuth callback URL scheme for login
-          /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes array" "$PLIST" 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0 dict" "$PLIST" 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes array" "$PLIST" 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string appwrite-callback-auth-for-monochrome" "$PLIST" 2>/dev/null || true
-
-          echo "Patched Info.plist:"
+          echo "✓ ATS disabled"
           /usr/libexec/PlistBuddy -c "Print :NSAppTransportSecurity" "$PLIST"
 
       - name: Show Xcode Version
         run: xcodebuild -version
 
+      - name: Install CocoaPods dependencies
+        working-directory: ios/App
+        run: pod install --repo-update
+
       - name: Archive App
         run: |
           mkdir -p build
           xcodebuild archive \
-            -project ios/App/App.xcodeproj \
+            -workspace ios/App/App.xcworkspace \
             -scheme App \
             -configuration Release \
             -destination 'generic/platform=iOS' \
