@@ -11,6 +11,12 @@ const getBaseURL = () => {
     if (hostname.endsWith('monochrome.tf') || hostname === 'monochrome.tf') {
         return 'https://auth.monochrome.tf';
     }
+
+    // Running inside Capacitor iOS/Android — use the production auth server
+    if (window.__CAPACITOR_APP__ || window.Capacitor) {
+        return 'https://auth.monochrome.tf';
+    }
+
     return 'https://auth.samidy.com';
 };
 
