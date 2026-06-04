@@ -27,13 +27,31 @@ jobs:
       - name: Sync Capacitor
         run: npx cap sync ios
 
+      # Apply Info.plist patches AFTER cap sync (sync overwrites it from template)
+      - name: Patch Info.plist
+        run: |
+          PLIST="ios/App/App/Info.plist"
+
+          # 1. Disable ATS so URLSession can fetch resources.tidal.com artwork
+          /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Delete :NSAppTransportSecurity:NSAllowsArbitraryLoads" "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsArbitraryLoads bool true" "$PLIST"
+
+          # 2. Register Appwrite OAuth callback URL scheme for login
+          /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes array" "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0 dict" "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes array" "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string appwrite-callback-auth-for-monochrome" "$PLIST" 2>/dev/null || true
+
+          echo "Patched Info.plist:"
+          /usr/libexec/PlistBuddy -c "Print :NSAppTransportSecurity" "$PLIST"
+
       - name: Show Xcode Version
         run: xcodebuild -version
 
       - name: Archive App
         run: |
           mkdir -p build
-
           xcodebuild archive \
             -project ios/App/App.xcodeproj \
             -scheme App \
@@ -45,9 +63,7 @@ jobs:
       - name: Package IPA
         run: |
           mkdir Payload
-
           cp -R build/App.xcarchive/Products/Applications/App.app Payload/
-
           zip -r Monochrome.ipa Payload
 
       - uses: actions/upload-artifact@v4
