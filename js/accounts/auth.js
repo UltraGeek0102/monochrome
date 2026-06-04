@@ -39,6 +39,16 @@ async function getSessionFromBearerToken() {
     return response.json();
 }
 
+// When running in Capacitor the origin is capacitor://localhost which
+// auth.monochrome.tf does not accept as a callback URL.
+// Use the real production origin so the server redirects correctly.
+function getCallbackOrigin() {
+    if (window.Capacitor || window.__CAPACITOR_APP__) {
+        return 'https://monochrome.tf';
+    }
+    return window.location.origin;
+}
+
 export class AuthManager {
     constructor() {
         this.user = null;
@@ -81,10 +91,11 @@ export class AuthManager {
 
     async _signInSocial(provider) {
         try {
+            const origin = getCallbackOrigin();
             await authClient.signIn.social({
                 provider,
-                callbackURL: window.location.origin + '/index.html',
-                errorCallbackURL: window.location.origin + '/login.html',
+                callbackURL: origin + '/index.html',
+                errorCallbackURL: origin + '/login.html',
             });
         } catch (error) {
             console.error('Login failed:', error);
@@ -144,7 +155,7 @@ export class AuthManager {
         try {
             const { error } = await authClient.requestPasswordReset({
                 email,
-                redirectTo: window.location.origin + '/reset-password',
+                redirectTo: getCallbackOrigin() + '/reset-password',
             });
             if (error) throw new Error(error.message);
             alert(`Password reset email sent to ${email}`);
