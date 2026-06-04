@@ -12,48 +12,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         return true
     }
 
-    // MARK: - Inject Appwrite config once the webview has fully loaded
-    // We hook into applicationDidBecomeActive (fires after the webview is ready)
-    // and use a one-shot flag so we only inject once on first launch.
-    private var hasInjectedAppwriteConfig = false
-
-    func applicationDidBecomeActive(_ application: UIApplication) {
-        guard !hasInjectedAppwriteConfig else { return }
-        hasInjectedAppwriteConfig = true
-
-        // Give the page JS a moment to finish initialising before we inject
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            guard let bridge = (self.window?.rootViewController as? CAPBridgeViewController)?.bridge else { return }
-            let js = """
-                window.__APPWRITE_ENDPOINT__ = 'https://auth.monochrome.tf/v1';
-                window.__APPWRITE_PROJECT_ID__ = 'auth-for-monochrome';
-                window.__CAPACITOR_APP__ = true;
-                console.log('[Monochrome] Appwrite config injected');
-            """
-            bridge.webView?.evaluateJavaScript(js) { _, error in
-                if let error = error {
-                    print("[AppDelegate] Appwrite injection failed: \(error.localizedDescription)")
-                }
-            }
-        }
-    }
-
-    // MARK: - Handle OAuth callback (appwrite-callback-auth-for-monochrome://)
-    func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
-        if url.scheme == "appwrite-callback-auth-for-monochrome" {
-            DispatchQueue.main.async {
-                guard let bridge = (self.window?.rootViewController as? CAPBridgeViewController)?.bridge else { return }
-                let escaped = url.absoluteString.replacingOccurrences(of: "'", with: "\\'")
-                let js = "window.dispatchEvent(new CustomEvent('appwrite-oauth-callback', { detail: '\(escaped)' }));"
-                bridge.webView?.evaluateJavaScript(js, completionHandler: nil)
-            }
-            return true
-        }
-        return ApplicationDelegateProxy.shared.application(app, open: url, options: options)
-    }
-
-    // MARK: - Audio Session
-
     private func configureAudioSession() {
         let session = AVAudioSession.sharedInstance()
         do {
@@ -90,8 +48,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
         switch type {
         case .began:
+            // Interruption began - system pauses audio automatically
             break
         case .ended:
+            // Interruption ended - reactivate session so playback can resume
             if let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt {
                 let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
                 if options.contains(.shouldResume) {
@@ -115,6 +75,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         }
 
         if reason == .oldDeviceUnavailable {
+            // Headphones/Bluetooth disconnected - reactivate session to keep background alive
             do {
                 try AVAudioSession.sharedInstance().setActive(true)
             } catch {
@@ -123,12 +84,39 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         }
     }
 
-    func applicationWillResignActive(_ application: UIApplication) {}
-    func applicationDidEnterBackground(_ application: UIApplication) {}
-    func applicationWillEnterForeground(_ application: UIApplication) {}
-    func applicationWillTerminate(_ application: UIApplication) {}
+    func applicationWillResignActive(_ application: UIApplication) {
+        // Sent when the application is about to move from active to inactive state. This can occur for certain types of temporary interruptions (such as an incoming phone call or SMS message) or when the user quits the application and it begins the transition to the background state.
+        // Use this method to pause ongoing tasks, disable timers, and invalidate graphics rendering callbacks. Games should use this method to pause the game.
+    }
+
+    func applicationDidEnterBackground(_ application: UIApplication) {
+        // Use this method to release shared resources, save user data, invalidate timers, and store enough application state information to restore your application to its current state in case it is terminated later.
+        // If your application supports background execution, this method is called instead of applicationWillTerminate: when the user quits.
+    }
+
+    func applicationWillEnterForeground(_ application: UIApplication) {
+        // Called as part of the transition from the background to the active state; here you can undo many of the changes made on entering the background.
+    }
+
+    func applicationDidBecomeActive(_ application: UIApplication) {
+        // Restart any tasks that were paused (or not yet started) while the application was inactive. If the application was previously in the background, optionally refresh the user interface.
+    }
+
+    func applicationWillTerminate(_ application: UIApplication) {
+        // Called when the application is about to terminate. Save data if appropriate. See also applicationDidEnterBackground:.
+    }
+
+    func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
+        // Called when the app was launched with a url. Feel free to add additional processing here,
+        // but if you want the App API to support tracking app url opens, make sure to keep this call
+        return ApplicationDelegateProxy.shared.application(app, open: url, options: options)
+    }
 
     func application(_ application: UIApplication, continue userActivity: NSUserActivity, restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void) -> Bool {
+        // Called when the app was launched with an activity, including Universal Links.
+        // Feel free to add additional processing here, but if you want the App API to support
+        // tracking app url opens, make sure to keep this call
         return ApplicationDelegateProxy.shared.application(application, continue: userActivity, restorationHandler: restorationHandler)
     }
+
 }
