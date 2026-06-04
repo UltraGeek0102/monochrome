@@ -39,14 +39,12 @@ async function getSessionFromBearerToken() {
     return response.json();
 }
 
-// When running in Capacitor the origin is capacitor://localhost which
-// auth.monochrome.tf does not accept as a callback URL.
-// Use the real production origin so the server redirects correctly.
+function isCapacitor() {
+    return !!(window.Capacitor || window.__CAPACITOR_APP__);
+}
+
 function getCallbackOrigin() {
-    if (window.Capacitor || window.__CAPACITOR_APP__) {
-        return 'https://monochrome.tf';
-    }
-    return window.location.origin;
+    return isCapacitor() ? 'https://monochrome.tf' : window.location.origin;
 }
 
 export class AuthManager {
@@ -92,6 +90,46 @@ export class AuthManager {
     async _signInSocial(provider) {
         try {
             const origin = getCallbackOrigin();
+
+            if (isCapacitor()) {
+                // In Capacitor, auth.monochrome.tf rejects requests from
+                // capacitor://localhost origin via its CSRF/origin check.
+                // Fix: bypass the JS client entirely and POST directly with
+                // disableRedirect:true so the server returns the OAuth URL as
+                // JSON instead of doing a server-side redirect. We then
+                // navigate to it ourselves, which goes through the webview's
+                // allowNavigation list correctly.
+                const resp = await fetch(`${AUTH_BASE_URL}/api/auth/sign-in/social`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        // Spoof the Origin so better-auth's origin check passes
+                        'Origin': 'https://monochrome.tf',
+                    },
+                    body: JSON.stringify({
+                        provider,
+                        callbackURL: origin + '/index.html',
+                        errorCallbackURL: origin + '/login.html',
+                        disableRedirect: true,
+                    }),
+                });
+
+                if (!resp.ok) {
+                    const text = await resp.text();
+                    throw new Error(text || `Auth server error: ${resp.status}`);
+                }
+
+                const data = await resp.json();
+                if (data?.url) {
+                    // Navigate the webview to the Google/GitHub/Discord OAuth page
+                    window.location.href = data.url;
+                } else {
+                    throw new Error('No OAuth URL returned from auth server');
+                }
+                return;
+            }
+
+            // Normal browser flow
             await authClient.signIn.social({
                 provider,
                 callbackURL: origin + '/index.html',
