@@ -2434,9 +2434,29 @@ export class Player {
         }
     }
 
-    updateMediaSession(track) {
+    async updateMediaSession(track) {
         const coverId = track.album?.cover;
         const trackTitle = getTrackTitle(track);
+
+        // On Capacitor, resources.tidal.com returns 403 to URLSession (native).
+        // Fix: fetch the image inside the webview (which has the right context)
+        // and convert it to a base64 data URL before passing to the plugin.
+        let artworkSrc = coverId ? this.api.getCoverUrl(coverId, '1280') : null;
+        if (artworkSrc && (window.Capacitor || window.__CAPACITOR_APP__)) {
+            try {
+                const resp = await fetch(artworkSrc);
+                if (resp.ok) {
+                    const blob = await resp.blob();
+                    artworkSrc = await new Promise((resolve) => {
+                        const reader = new FileReader();
+                        reader.onloadend = () => resolve(reader.result);
+                        reader.readAsDataURL(blob);
+                    });
+                }
+            } catch (e) {
+                // keep original URL as fallback
+            }
+        }
 
         // Force a refresh for picky Bluetooth systems by clearing metadata first
         MediaSession.setMetadata({})
@@ -2445,10 +2465,10 @@ export class Player {
                     title: trackTitle || 'Unknown Title',
                     artist: getTrackArtists(track) || 'Unknown Artist',
                     album: track.album?.title || 'Unknown Album',
-                    artwork: coverId
+                    artwork: artworkSrc
                         ? [
                               {
-                                  src: this.api.getCoverUrl(coverId, '1280'),
+                                  src: artworkSrc,
                                   sizes: '1280x1280',
                                   type: 'image/jpeg',
                               },
